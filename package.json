@@ -1,0 +1,33 @@
+{
+  "name": "hashfolder",
+  "version": "0.0.0",
+  "description": "Simple command line tool that can create/update an sqlite database that contains the sha256 hash of all files inside a specified root folder.",
+  "author": "DivDE <divde@musicociel.fr>",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^9.0.0",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.6",
+    "@types/node": "^20.8.10",
+    "@types/yargs": "^17.0.29",
+    "typescript": "^5.2.2"
+  },
+  "files": [
+    "dist",
+    "hashfolder"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "exports": null,
+  "bin": "hashfolder",
+  "bugs": {
+    "url": "https://github.com/davdiv/hashfolder/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/davdiv/hashfolder.git"
+  }
+}
