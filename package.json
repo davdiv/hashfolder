@@ -1,6 +1,6 @@
 {
   "name": "hashfolder",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Simple command line tool that can create/update an sqlite database that contains the sha256 hash of all files inside a specified root folder.",
   "author": "DivDE <divde@musicociel.fr>",
   "license": "MIT",
