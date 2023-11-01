@@ -22,7 +22,7 @@ export type UpdateContext = {
 
 type FindUpdatesFunction = (
   context: UpdateContext,
-  path: string
+  path: string,
 ) => Promise<EntryResult>;
 
 export const getDirEntryUpdateFunction = (dirEntry: Dirent | Stats) => {
@@ -60,7 +60,7 @@ export const findFolderUpdates: FindUpdatesFunction = async (context, path) => {
       cTime = Math.max(cTime, result.entry.cTime);
       mTime = Math.max(cTime, result.entry.mTime);
       return { name, ...result.entry };
-    })
+    }),
   );
   const hash = createHash("sha256");
   for (const item of content) {

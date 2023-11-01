@@ -12,6 +12,7 @@
     "@types/better-sqlite3": "^7.6.6",
     "@types/node": "^20.8.10",
     "@types/yargs": "^17.0.29",
+    "prettier": "^3.0.3",
     "typescript": "^5.2.2",
     "vite": "^4.4.9"
   },
@@ -20,7 +21,10 @@
     "hashfolder"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && vite build"
+    "ci": "npm run build && npm run format:check",
+    "build": "tsc -p tsconfig.json && vite build",
+    "format:check": "prettier . --list-different",
+    "format:fix": "prettier . --write"
   },
   "exports": null,
   "bin": "hashfolder",

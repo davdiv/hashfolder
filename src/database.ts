@@ -28,7 +28,7 @@ export interface DbFile {
 
 const createGet = <T extends {} | unknown[], U>(
   db: Database,
-  source: string
+  source: string,
 ) => {
   const res = db.prepare<T>(source);
   return res.get.bind(res) as T extends unknown[]
@@ -45,7 +45,7 @@ const createRun = <T extends {} | unknown[]>(db: Database, source: string) => {
 
 export const openDatabase = (
   fileName: string,
-  { fileMustExist = false, readonly = false } = {}
+  { fileMustExist = false, readonly = false } = {},
 ) => {
   if (!fileMustExist) {
     fileMustExist = readonly || existsSync(fileName);
@@ -59,12 +59,12 @@ export const openDatabase = (
         .get() as any;
     } catch (error) {
       throw new Error(
-        `File '${fileName}' does not contain a hashfolder database.`
+        `File '${fileName}' does not contain a hashfolder database.`,
       );
     }
     if (result?.hashfolder_version != DB_VERSION) {
       throw new Error(
-        `File '${fileName}' contains an incompatible version of a hashfolder database, expected ${DB_VERSION}, found ${result?.hashfolder_version}`
+        `File '${fileName}' contains an incompatible version of a hashfolder database, expected ${DB_VERSION}, found ${result?.hashfolder_version}`,
       );
     }
   } else {
@@ -77,15 +77,15 @@ export const openDatabase = (
     },
     getFile: createGet<[string], DbFile>(
       db,
-      "SELECT * FROM files WHERE path=?"
+      "SELECT * FROM files WHERE path=?",
     ),
     upsertFile: createRun<DbFile>(
       db,
-      "INSERT INTO files (path,type,checksum,size,cTime,mTime,lastCheckTime) VALUES (@path,@type,@checksum,@size,@cTime,@mTime,@lastCheckTime) ON CONFLICT (path) DO UPDATE SET type=excluded.type,checksum=excluded.checksum,size=excluded.size,cTime=excluded.cTime,mTime=excluded.mTime,lastCheckTime=excluded.lastCheckTime"
+      "INSERT INTO files (path,type,checksum,size,cTime,mTime,lastCheckTime) VALUES (@path,@type,@checksum,@size,@cTime,@mTime,@lastCheckTime) ON CONFLICT (path) DO UPDATE SET type=excluded.type,checksum=excluded.checksum,size=excluded.size,cTime=excluded.cTime,mTime=excluded.mTime,lastCheckTime=excluded.lastCheckTime",
     ),
     removeOldEntries: createRun<number>(
       db,
-      "DELETE FROM files WHERE lastCheckTime<>?;"
+      "DELETE FROM files WHERE lastCheckTime<>?;",
     ),
   };
 };

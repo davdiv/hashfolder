@@ -50,7 +50,7 @@ yargs
           dbLastCheckTime,
           db,
         },
-        "."
+        ".",
       );
       db.removeOldEntries(dbLastCheckTime);
       db.close();
