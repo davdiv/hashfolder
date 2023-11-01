@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import type { Dirent, Stats } from "fs";
 import { createReadStream } from "fs";
 import { lstat, readdir, readlink, stat } from "fs/promises";
+import type PQueue from "p-queue";
 import { join, posix } from "path";
 import { pipeline } from "stream/promises";
 import { DbFile, DbFileType, HashfolderDatabase } from "./database";
@@ -14,11 +15,12 @@ export interface EntryResult {
   previousEntry: DbFile | undefined;
 }
 
-export type UpdateContext = {
+export interface UpdateContext {
   db: HashfolderDatabase;
   dbLastCheckTime: number;
   rootPath: string;
-};
+  pqueue: PQueue;
+}
 
 type FindUpdatesFunction = (
   context: UpdateContext,
@@ -44,9 +46,12 @@ export const findFolderUpdates: FindUpdatesFunction = async (context, path) => {
   let size = 0;
   let cTime = fileStat.ctimeMs;
   let mTime = fileStat.mtimeMs;
-  const dirEntries = await readdir(fullFilePath, {
-    withFileTypes: true,
-  });
+  const dirEntries = (await context.pqueue.add(
+    async () =>
+      await readdir(fullFilePath, {
+        withFileTypes: true,
+      }),
+  )) as Dirent[];
   dirEntries.sort(dirEntSortFn);
   const content = await Promise.all(
     dirEntries.map(async (dirEntry) => {
@@ -138,16 +143,18 @@ export const findFileUpdates: FindUpdatesFunction = async (context, path) => {
   ) {
     checksum = previousEntry.checksum;
   } else {
-    const readStream = createReadStream(fullFilePath);
-    const hash = createHash("sha256");
-    await pipeline(readStream, hash);
-    checksum = hash.digest();
-    size = readStream.bytesRead;
+    checksum = (await context.pqueue.add(async () => {
+      const readStream = createReadStream(fullFilePath);
+      const hash = createHash("sha256");
+      await pipeline(readStream, hash);
+      size = readStream.bytesRead;
+      return hash.digest();
+    })) as Buffer;
   }
   const entry: DbFile = {
     path,
     type: DbFileType.FILE,
-    checksum,
+    checksum: checksum!,
     size,
     cTime: fileStat.ctimeMs,
     mTime: fileStat.mtimeMs,

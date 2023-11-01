@@ -1,8 +1,8 @@
+import PQueue from "p-queue";
 import yargs from "yargs";
-
-import { resolve } from "path";
 import { openDatabase } from "./database";
 import { findFolderUpdates } from "./update";
+import { cpus } from "os";
 
 yargs
   .scriptName("hashfolder")
@@ -35,13 +35,18 @@ yargs
       "update (or create) dbFile to contain the list of files from folder, and shows the hash of the full folder content",
     builder: (yargs) =>
       yargs
+        .option("concurrency", {
+          type: "number",
+          describe: "maximum number of files/folders to open in parallel",
+          default: cpus().length,
+        })
         .positional("dbFile", {
           type: "string",
           describe: "sqlite hashfolder database file to update or create",
         })
         .positional("folder", { type: "string", describe: "folder to index" }),
     handler: async (yargs) => {
-      const { dbFile, folder } = yargs;
+      const { dbFile, folder, concurrency } = yargs;
       const db = openDatabase(dbFile!);
       const dbLastCheckTime = Date.now();
       const result = await findFolderUpdates(
@@ -49,6 +54,7 @@ yargs
           rootPath: folder!,
           dbLastCheckTime,
           db,
+          pqueue: new PQueue({ concurrency }),
         },
         ".",
       );
