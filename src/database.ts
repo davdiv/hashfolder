@@ -51,6 +51,7 @@ export const openDatabase = (
     fileMustExist = readonly || existsSync(fileName);
   }
   const db = new SQLiteDB(fileName, { fileMustExist, readonly });
+  db.pragma("journal_mode = WAL");
   if (fileMustExist) {
     let result: undefined | { hashfolder_version: string };
     try {
