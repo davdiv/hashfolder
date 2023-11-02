@@ -60,7 +60,7 @@ yargs
       );
       db.removeOldEntries(dbLastCheckTime);
       db.close();
-      console.log(result.entry.checksum.toString("hex"));
+      console.log(result.checksum.toString("hex"));
     },
   })
   .completion()

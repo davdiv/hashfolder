@@ -10,11 +10,6 @@ import { DbFile, DbFileType, HashfolderDatabase } from "./database";
 const naturalCompareFn = (a: any, b: any) => (a < b ? -1 : a > b ? 1 : 0);
 const dirEntSortFn = (a: Dirent, b: Dirent) => naturalCompareFn(a.name, b.name);
 
-export interface EntryResult {
-  entry: DbFile;
-  previousEntry: DbFile | undefined;
-}
-
 export interface UpdateContext {
   db: HashfolderDatabase;
   dbLastCheckTime: number;
@@ -25,7 +20,7 @@ export interface UpdateContext {
 type FindUpdatesFunction = (
   context: UpdateContext,
   path: string,
-) => Promise<EntryResult>;
+) => Promise<DbFile>;
 
 export const getDirEntryUpdateFunction = (dirEntry: Dirent | Stats) => {
   // TODO: handle special file types ?
@@ -40,7 +35,6 @@ export const getDirEntryUpdateFunction = (dirEntry: Dirent | Stats) => {
 };
 
 export const findFolderUpdates: FindUpdatesFunction = async (context, path) => {
-  const previousEntry = context.db.getFile(path);
   const fullFilePath = join(context.rootPath, path);
   const fileStat = await stat(fullFilePath);
   let size = 0;
@@ -61,10 +55,10 @@ export const findFolderUpdates: FindUpdatesFunction = async (context, path) => {
       }
       const name = dirEntry.name;
       const result = await updateFn(context, posix.join(path, name));
-      size += result.entry.size;
-      cTime = Math.max(cTime, result.entry.cTime);
-      mTime = Math.max(cTime, result.entry.mTime);
-      return { name, ...result.entry };
+      size += result.size;
+      cTime = Math.max(cTime, result.cTime);
+      mTime = Math.max(cTime, result.mTime);
+      return { name, ...result };
     }),
   );
   const hash = createHash("sha256");
@@ -89,10 +83,7 @@ export const findFolderUpdates: FindUpdatesFunction = async (context, path) => {
     lastCheckTime: context.dbLastCheckTime,
   };
   context.db.upsertFile(entry);
-  return {
-    entry,
-    previousEntry,
-  };
+  return entry;
 };
 
 export const findLinkUpdates: FindUpdatesFunction = async (context, path) => {
@@ -123,10 +114,7 @@ export const findLinkUpdates: FindUpdatesFunction = async (context, path) => {
     lastCheckTime: context.dbLastCheckTime,
   };
   context.db.upsertFile(entry);
-  return {
-    entry,
-    previousEntry,
-  };
+  return entry;
 };
 
 export const findFileUpdates: FindUpdatesFunction = async (context, path) => {
@@ -161,8 +149,5 @@ export const findFileUpdates: FindUpdatesFunction = async (context, path) => {
     lastCheckTime: context.dbLastCheckTime,
   };
   context.db.upsertFile(entry);
-  return {
-    entry,
-    previousEntry,
-  };
+  return entry;
 };
