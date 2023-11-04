@@ -36,6 +36,16 @@ const createGet = <T extends {} | unknown[], U>(
     : (input: T) => U | undefined;
 };
 
+const createGetAll = <T extends {} | unknown[], U>(
+  db: Database,
+  source: string,
+) => {
+  const res = db.prepare<T>(source);
+  return res.all.bind(res) as T extends unknown[]
+    ? (...input: T) => U[]
+    : (input: T) => U[];
+};
+
 const createRun = <T extends {} | unknown[]>(db: Database, source: string) => {
   const res = db.prepare<T>(source);
   return res.run.bind(res) as T extends unknown[]
@@ -87,6 +97,17 @@ export const openDatabase = (
     removeOldEntries: createRun<number>(
       db,
       "DELETE FROM files WHERE lastCheckTime<>?;",
+    ),
+    listDuplicates: createGetAll<
+      [],
+      Pick<DbFile, "checksum" | "size" | "type"> & { count: number }
+    >(
+      db,
+      "SELECT checksum, size, type, COUNT(*) as count FROM files GROUP BY checksum, size, type HAVING count > 1 ORDER BY type, count, size, checksum",
+    ),
+    listByChecksum: createGetAll<[Buffer], DbFile>(
+      db,
+      "SELECT * FROM files WHERE checksum=?",
     ),
   };
 };
