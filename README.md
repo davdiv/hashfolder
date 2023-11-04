@@ -1,5 +1,7 @@
 # hashfolder
 
+[![npm](https://img.shields.io/npm/v/hashfolder)](https://www.npmjs.com/package/hashfolder)
+
 Simple command line tool that can create/update an sqlite database that contains the sha256 hash of all files inside a specified root folder.
 
 - Install globally:
