@@ -1,7 +1,14 @@
 {
   "name": "hashfolder",
   "version": "0.0.3",
-  "description": "Simple command line tool that can create/update an sqlite database that contains the sha256 hash of all files inside a specified root folder.",
+  "description": "Simple command line tool that can create/update an sqlite database that contains the sha256 hash of all files inside a specified root folder and then find duplicates.",
+  "keywords": [
+    "checksum",
+    "duplicate-files",
+    "duplicates",
+    "sha256",
+    "duplicate-detection"
+  ],
   "author": "DivDE <divde@musicociel.fr>",
   "license": "MIT",
   "dependencies": {
