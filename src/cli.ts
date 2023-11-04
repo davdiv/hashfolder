@@ -87,7 +87,7 @@ yargs
           );
         }
         console.log(
-          `${duplicateFiles} duplicate files, ${duplicateSize} bytes`,
+          `${duplicateFiles} duplicate file(s), ${duplicateSize} bytes`,
         );
       } else {
         console.log("There is no duplicate file.");
