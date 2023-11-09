@@ -5,22 +5,50 @@ import { lstat, readdir, readlink, stat } from "fs/promises";
 import type PQueue from "p-queue";
 import { join, posix } from "path";
 import { pipeline } from "stream/promises";
-import { DbFile, DbFileType, HashfolderDatabase } from "./database";
+import { DbFile, DbFileHash, DbFileType, HashfolderDatabase } from "./database";
+import {
+  MultiHashes,
+  createHashObjects,
+  digest,
+  isGitAlgorithm,
+} from "./hashes";
 
 const naturalCompareFn = (a: any, b: any) => (a < b ? -1 : a > b ? 1 : 0);
-const dirEntSortFn = (a: Dirent, b: Dirent) => naturalCompareFn(a.name, b.name);
+const withSlashForDirectory = (a: Dirent) =>
+  a.isDirectory() ? `${a.name}/` : a.name;
+const dirEntSortFn = (a: Dirent, b: Dirent) =>
+  naturalCompareFn(withSlashForDirectory(a), withSlashForDirectory(b));
 
 export interface UpdateContext {
   db: HashfolderDatabase;
+  hashes: string[];
   dbLastCheckTime: number;
   rootPath: string;
   pqueue: PQueue;
 }
 
+export interface UpdateResult {
+  file: DbFile;
+  fileHashes: Record<string, Buffer>;
+}
+
 type FindUpdatesFunction = (
   context: UpdateContext,
   path: string,
-) => Promise<DbFile>;
+) => Promise<UpdateResult>;
+
+const fromDbFileHashes = (dbFileHashes: DbFileHash[]) => {
+  const hashes: Record<string, Buffer> = {};
+  for (const { algorithm: type, hash } of dbFileHashes) {
+    hashes[type] = hash;
+  }
+  return hashes;
+};
+
+const checkHasAllHashes = (
+  expectedHashes: string[],
+  fileHashes: Record<string, Buffer>,
+) => expectedHashes.every((hash) => Object.hasOwn(fileHashes, hash));
 
 export const getDirEntryUpdateFunction = (dirEntry: Dirent | Stats) => {
   // TODO: handle special file types ?
@@ -32,6 +60,21 @@ export const getDirEntryUpdateFunction = (dirEntry: Dirent | Stats) => {
     return findFileUpdates;
   }
   return null;
+};
+
+const gitMode = (entry: DbFile) => {
+  switch (entry.type) {
+    case DbFileType.FOLDER:
+      return "40000";
+    case DbFileType.LINK:
+      return "120000";
+    case DbFileType.FILE:
+      if (entry.mode & 0o100) {
+        // executable file
+        return "100755";
+      }
+      return "100644";
+  }
 };
 
 export const findFolderUpdates: FindUpdatesFunction = async (context, path) => {
@@ -47,6 +90,10 @@ export const findFolderUpdates: FindUpdatesFunction = async (context, path) => {
       }),
   )) as Dirent[];
   dirEntries.sort(dirEntSortFn);
+  const gitTreeSizes = new Map<string, number>();
+  context.hashes
+    .filter(isGitAlgorithm)
+    .forEach((algorithm) => gitTreeSizes.set(algorithm, 0));
   const content = await Promise.all(
     dirEntries.map(async (dirEntry) => {
       const updateFn = getDirEntryUpdateFunction(dirEntry);
@@ -55,99 +102,134 @@ export const findFolderUpdates: FindUpdatesFunction = async (context, path) => {
       }
       const name = dirEntry.name;
       const result = await updateFn(context, posix.join(path, name));
-      size += result.size;
-      cTime = Math.max(cTime, result.cTime);
-      mTime = Math.max(cTime, result.mTime);
-      return { name, ...result };
+      size += result.file.size;
+      cTime = Math.max(cTime, result.file.cTime);
+      mTime = Math.max(cTime, result.file.mTime);
+      const gitEntry = Buffer.from(
+        `${gitMode(result.file)} ${name}\u0000`,
+        "utf8",
+      );
+      for (const [algorithm, previousSize] of gitTreeSizes.entries()) {
+        gitTreeSizes.set(
+          algorithm,
+          previousSize + gitEntry.length + result.fileHashes[algorithm].length,
+        );
+      }
+      return {
+        gitEntry,
+        stdEntry: Buffer.from(`${result.file.type} ${name}\u0000`, "utf8"),
+        hashes: result.fileHashes,
+      };
     }),
   );
-  const hash = createHash("sha256");
+  const hashObjects = createHashObjects(context.hashes, (hash, algorithm) => {
+    hash.update(
+      Buffer.from(`tree ${gitTreeSizes.get(algorithm)}\u0000`, "utf8"),
+    );
+  });
   for (const item of content) {
     if (item) {
-      hash.write(item.name);
-      hash.write("\0");
-      hash.write(item.type);
-      hash.write("\0");
-      hash.write(item.checksum);
-      hash.write("\0\0");
+      for (const [algorithm, hash] of hashObjects.entries()) {
+        hash.update(isGitAlgorithm(algorithm) ? item.gitEntry : item.stdEntry);
+        hash.update(item.hashes[algorithm]);
+      }
     }
   }
-  const checksum = hash.digest();
-  const entry: DbFile = {
+  const fileHashes = digest(hashObjects);
+
+  const file: DbFile = {
     path,
     type: DbFileType.FOLDER,
-    checksum,
+    mode: fileStat.mode,
     size,
     cTime,
     mTime,
     lastCheckTime: context.dbLastCheckTime,
   };
-  context.db.upsertFile(entry);
-  return entry;
+  context.db.deleteFileHashes(path);
+  context.db.upsertFile(file);
+  for (const type of Object.keys(fileHashes)) {
+    context.db.upsertFileHash({
+      path,
+      algorithm: type,
+      hash: fileHashes[type],
+    });
+  }
+  return {
+    file,
+    fileHashes,
+  };
 };
 
-export const findLinkUpdates: FindUpdatesFunction = async (context, path) => {
-  const previousEntry = context.db.getFile(path);
-  const fullFilePath = join(context.rootPath, path);
-  const fileStat = await lstat(fullFilePath);
+const findFileOrLinksUpdates =
+  (
+    type: DbFileType,
+    streamContent: (fullFilePath: string, hash: MultiHashes) => Promise<void>,
+  ): FindUpdatesFunction =>
+  async (context, path) => {
+    const previousFile = context.db.getFile(path);
+    const fullFilePath = join(context.rootPath, path);
+    const fileStat = await lstat(fullFilePath);
+    const size = fileStat.size;
+    let reusePreviousHashes =
+      previousFile?.type === type &&
+      previousFile.size === fileStat.size &&
+      previousFile.mode === fileStat.mode &&
+      previousFile.mTime === fileStat.mtimeMs &&
+      previousFile.cTime === fileStat.ctimeMs;
+    let fileHashes!: Record<string, Buffer>;
+    if (reusePreviousHashes) {
+      fileHashes = fromDbFileHashes(context.db.getFileHashes(path));
+      reusePreviousHashes = checkHasAllHashes(context.hashes, fileHashes);
+    }
+    if (!reusePreviousHashes) {
+      fileHashes = (await context.pqueue.add(async () => {
+        const hash = new MultiHashes(
+          context.hashes,
+          Buffer.from(`blob ${size}\u0000`, "utf8"),
+        );
+        await streamContent(fullFilePath, hash);
+        return hash.digest();
+      }))!;
+    }
+    const file: DbFile = {
+      path,
+      type,
+      size,
+      mode: fileStat.mode,
+      cTime: fileStat.ctimeMs,
+      mTime: fileStat.mtimeMs,
+      lastCheckTime: context.dbLastCheckTime,
+    };
+    if (!reusePreviousHashes) {
+      context.db.deleteFileHashes(path);
+    }
+    context.db.upsertFile(file);
+    for (const type of Object.keys(fileHashes)) {
+      context.db.upsertFileHash({
+        path,
+        algorithm: type,
+        hash: fileHashes[type],
+      });
+    }
+    return {
+      file,
+      fileHashes,
+    };
+  };
 
-  let size = fileStat.size;
-  let checksum: Buffer;
-  if (
-    previousEntry?.type === DbFileType.LINK &&
-    previousEntry.size === fileStat.size &&
-    previousEntry.mTime === fileStat.mtimeMs &&
-    previousEntry.cTime === fileStat.ctimeMs
-  ) {
-    checksum = previousEntry.checksum;
-  } else {
+export const findLinkUpdates = findFileOrLinksUpdates(
+  DbFileType.LINK,
+  async (fullFilePath, hash) => {
     const link = await readlink(fullFilePath, { encoding: "buffer" });
-    checksum = createHash("sha256").update(link).digest();
-  }
-  const entry: DbFile = {
-    path,
-    type: DbFileType.LINK,
-    checksum,
-    size,
-    cTime: fileStat.ctimeMs,
-    mTime: fileStat.mtimeMs,
-    lastCheckTime: context.dbLastCheckTime,
-  };
-  context.db.upsertFile(entry);
-  return entry;
-};
+    hash.update(link);
+  },
+);
 
-export const findFileUpdates: FindUpdatesFunction = async (context, path) => {
-  const previousEntry = context.db.getFile(path);
-  const fullFilePath = join(context.rootPath, path);
-  const fileStat = await stat(fullFilePath);
-  let size = fileStat.size;
-  let checksum: Buffer;
-  if (
-    previousEntry?.type === DbFileType.FILE &&
-    previousEntry.size === fileStat.size &&
-    previousEntry.mTime === fileStat.mtimeMs &&
-    previousEntry.cTime === fileStat.ctimeMs
-  ) {
-    checksum = previousEntry.checksum;
-  } else {
-    checksum = (await context.pqueue.add(async () => {
-      const readStream = createReadStream(fullFilePath);
-      const hash = createHash("sha256");
-      await pipeline(readStream, hash);
-      size = readStream.bytesRead;
-      return hash.digest();
-    })) as Buffer;
-  }
-  const entry: DbFile = {
-    path,
-    type: DbFileType.FILE,
-    checksum: checksum!,
-    size,
-    cTime: fileStat.ctimeMs,
-    mTime: fileStat.mtimeMs,
-    lastCheckTime: context.dbLastCheckTime,
-  };
-  context.db.upsertFile(entry);
-  return entry;
-};
+export const findFileUpdates = findFileOrLinksUpdates(
+  DbFileType.FILE,
+  async (fullFilePath, hash) => {
+    const readStream = createReadStream(fullFilePath);
+    await pipeline(readStream, hash);
+  },
+);
