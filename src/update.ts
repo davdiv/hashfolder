@@ -25,6 +25,7 @@ export interface UpdateContext {
   dbLastCheckTime: number;
   rootPath: string;
   pqueue: PQueue;
+  recomputeAll: boolean;
 }
 
 export interface UpdateResult {
@@ -167,7 +168,9 @@ const findFileOrLinksUpdates =
     streamContent: (fullFilePath: string, hash: MultiHashes) => Promise<void>,
   ): FindUpdatesFunction =>
   async (context, path) => {
-    const previousFile = context.db.getFile(path);
+    const previousFile = context.recomputeAll
+      ? undefined
+      : context.db.getFile(path);
     const fullFilePath = join(context.rootPath, path);
     const fileStat = await lstat(fullFilePath);
     const size = fileStat.size;

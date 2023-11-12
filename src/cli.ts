@@ -147,6 +147,12 @@ yargs
           choices: hashAlgorithms,
           describe: "hash algorithms to use",
         })
+        .option("recompute-all", {
+          type: "boolean",
+          default: false,
+          describe:
+            "whether to recompute the hash of all files (even if the dates and size did not change)",
+        })
         .positional("dbFile", {
           type: "string",
           describe: "sqlite hashfolder database file to update or create",
@@ -158,6 +164,7 @@ yargs
         folder,
         algorithm: requestedAlgorithms,
         concurrency,
+        recomputeAll,
       } = yargs;
       const db = openDatabase(dbFile!);
       let hashes = requestedAlgorithms ?? db.getAvailableHashAlgorithms();
@@ -172,6 +179,7 @@ yargs
           dbLastCheckTime,
           db,
           pqueue: new PQueue({ concurrency }),
+          recomputeAll,
         },
         ".",
       );
